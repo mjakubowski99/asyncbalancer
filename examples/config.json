@@ -1,0 +1,16 @@
+{
+    "providers": {
+      "gemini": {
+        "resources": [
+          { "name": "tpm", "value": 12000, "initial_ttl": 7200, "next_ttl": 7200 },
+          { "name": "rpm", "value": 1000, "initial_ttl": 3600, "next_ttl": 3600}
+        ]
+      },
+      "gemma": {
+        "resources": [
+          { "name": "tpm", "value": 10000, "initial_ttl": 7200, "next_ttl": 7200 },
+          { "name": "rpm", "value": 500, "initial_ttl": 3600, "next_ttl": 3600}
+        ]
+      }
+    }
+  }
