@@ -2,14 +2,16 @@
     "providers": {
       "gemini": {
         "resources": [
-          { "name": "tpm", "value": 12000, "initial_ttl": 7200, "next_ttl": 7200 },
-          { "name": "rpm", "value": 1000, "initial_ttl": 3600, "next_ttl": 3600}
-        ]
-      },
-      "gemma": {
-        "resources": [
-          { "name": "tpm", "value": 10000, "initial_ttl": 7200, "next_ttl": 7200 },
-          { "name": "rpm", "value": 500, "initial_ttl": 3600, "next_ttl": 3600}
+          { "name": "tpm", "value": 12000, "period": "monthly" },
+          { "name": "rpm", "value": 1000, "period": "monthly" },
+          { "name": "rpd", "value": 12000, "period": "daily" },
+          { "name": "rph", "value": 12000, "period": "hourly" },
+          { "name": "rpw", "value": 12000, "period": "weekly" },
+          { "name": "rpy", "value": 12000, "period": "yearly" },
+          { "name": "rpq", "value": 12000, "period": "quarterly" },
+          { "name": "rps", "value": 12000, "period": "secondly" },
+          { "name": "rps", "value": 12000, "period": "secondly" },
+          { "name": "rpms", "value": 12000, "period": "custom", "ttl": 7200 }
         ]
       }
     }
