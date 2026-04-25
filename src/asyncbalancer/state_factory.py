@@ -65,6 +65,8 @@ class StateFactory:
                 "in config or external resources file."
             )
 
+        timezone_name = self._resolve_timezone_name(provider)
+
         return ProviderState(
             name=provider,
             score=0.0,
@@ -80,6 +82,8 @@ class StateFactory:
                 weight=1,
                 created_at=datetime.now().timestamp(),
                 ttl=self._resolve_resource_ttl(provider, resource),
+                period=str(resource.get("period")).lower() if resource.get("period") else None,
+                timezone=timezone_name,
             ) for resource in resources},
         )
 

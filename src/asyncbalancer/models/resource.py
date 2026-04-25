@@ -7,6 +7,8 @@ class BaseResourceUnit:
     weight: int
     created_at: int
     ttl: int
+    period: str | None = None
+    timezone: str = "UTC"
 
 @dataclass
 class ResourceUnitUsage(BaseResourceUnit):

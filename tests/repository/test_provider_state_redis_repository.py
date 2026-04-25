@@ -101,6 +101,46 @@ async def test_get_state_when_ttl_is_expired(state: ProviderState, redis_repo: P
     assert result.resource_units["tpm"].reserved == 0
     assert abs(result.resource_units["tpm"].created_at - datetime.now(UTC).timestamp()) <= 5
 
+
+async def test_get_state_period_resource_resets_usage_in_new_window(
+    state: ProviderState,
+    redis_repo: ProviderStateRedisRepository,
+):
+    # Force resource to be from an old daily window.
+    state.resource_units["tpm"].period = "daily"
+    state.resource_units["tpm"].timezone = "UTC"
+    state.resource_units["tpm"].created_at = datetime.now(UTC).timestamp() - 90000
+    state.resource_units["tpm"].used = 55
+    state.resource_units["tpm"].reserved = 22
+
+    await redis_repo.save_state(state)
+
+    result = await redis_repo.get_state(state.name)
+
+    assert result.resource_units["tpm"].used == 0
+    assert result.resource_units["tpm"].reserved == 0
+    assert abs(result.resource_units["tpm"].created_at - datetime.now(UTC).timestamp()) <= 5
+    assert 1 <= result.resource_units["tpm"].ttl <= 86400
+
+
+async def test_get_state_period_resource_recalculates_ttl_without_reset(
+    state: ProviderState,
+    redis_repo: ProviderStateRedisRepository,
+):
+    state.resource_units["tpm"].period = "secondly"
+    state.resource_units["tpm"].timezone = "UTC"
+    state.resource_units["tpm"].created_at = datetime.now(UTC).timestamp()
+    state.resource_units["tpm"].used = 7
+    state.resource_units["tpm"].reserved = 3
+
+    await redis_repo.save_state(state)
+
+    result = await redis_repo.get_state(state.name)
+
+    assert result.resource_units["tpm"].used == 7
+    assert result.resource_units["tpm"].reserved == 3
+    assert result.resource_units["tpm"].ttl == 1
+
 async def test_lock_locks_the_key(redis_repo: ProviderStateRedisRepository):
     assert await redis_repo.lock("test2")
     assert not (await redis_repo.lock("test2"))

@@ -102,15 +102,28 @@ If request tier is missing, tier filtering is skipped (all providers can be cons
 `resources_file` can point to a JSON or TOML file.  
 `ASYNCBALANCER_RESOURCES_FILE` is also supported.
 
+Resources now support a period-based TTL model:
+
+- `period` controls the quota window (`secondly`, `minutely`, `hourly`, `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, `custom`)
+- for `period="custom"` you must provide explicit `ttl` (in seconds)
+- `timezone` can be defined per provider (or globally); default is `UTC`
+- for calendar periods (for example `monthly`), TTL is recalculated dynamically as **seconds until end of current period** in the configured timezone
+- usage counters are reset automatically when a new period window starts
+
+`initial_ttl` is still supported for backward compatibility.
+
 JSON example (`examples/config.json`):
 
 ```json
 {
+  "timezone": "UTC",
   "providers": {
     "gemini": {
+      "timezone": "Europe/Warsaw",
       "resources": [
-        { "name": "tpm", "value": 10000, "initial_ttl": 3600, "next_ttl": 3600 },
-        { "name": "rpm", "value": 500, "initial_ttl": 60, "next_ttl": 60 }
+        { "name": "tpm", "value": 10000, "period": "monthly" },
+        { "name": "rpm", "value": 500, "period": "hourly" },
+        { "name": "rpms", "value": 100, "period": "custom", "ttl": 7200 }
       ]
     }
   }
