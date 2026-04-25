@@ -69,7 +69,7 @@ class StateFactory:
 
         return ProviderState(
             name=provider,
-            score=0.0,
+            score=100.0,
             circuit_breaker=CircuitBreaker(
                 key=provider,
                 state=CircuitBreakerState.OPEN,

@@ -209,6 +209,42 @@ async def set_resource_ttl(provider: str, resource: str, ttl: int) -> int:
     return 0
 
 
+async def set_score(provider: str, score: float) -> int:
+    if score < 0 or score > 100:
+        print("Value for 'score' must be in range 0..100.")
+        return 2
+
+    state_factory = StateFactory()
+    available_providers = set(state_factory.get_providers())
+    if provider not in available_providers:
+        print(
+            f"Unknown provider: {provider}. Available providers: "
+            + ", ".join(sorted(available_providers))
+        )
+        return 2
+
+    repository = RepositoryRegistry.create()
+
+    acquired = await repository.lock(provider)
+    while not acquired:
+        await asyncio.sleep(0.1)
+        acquired = await repository.lock(provider)
+
+    try:
+        state = await repository.get_state(provider)
+        if state is None:
+            print(f"No persisted state for provider: {provider}")
+            return 1
+
+        state.score = score
+        await repository.save_state(state)
+    finally:
+        await repository.unlock(provider)
+
+    print(f"Updated provider '{provider}' score={score:.4f}.")
+    return 0
+
+
 async def adjust_resource_used(provider: str, resource: str, delta: int) -> int:
     state_factory = StateFactory()
     available_providers = set(state_factory.get_providers())
@@ -394,6 +430,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="New ttl value in seconds.",
     )
+    set_score_cmd = subparsers.add_parser(
+        "set-score",
+        help="Update score value for one provider.",
+    )
+    set_score_cmd.add_argument(
+        "provider",
+        help="Provider name.",
+    )
+    set_score_cmd.add_argument(
+        "score",
+        type=float,
+        help="New score in range 0..100.",
+    )
     adjust_used_cmd = subparsers.add_parser(
         "adjust-resource-used",
         help="Increment/decrement resource used value for one provider.",
@@ -452,6 +501,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 provider=args.provider,
                 resource=args.resource,
                 ttl=args.ttl,
+            )
+        )
+    if args.command == "set-score":
+        return asyncio.run(
+            set_score(
+                provider=args.provider,
+                score=args.score,
             )
         )
     if args.command == "adjust-resource-used":

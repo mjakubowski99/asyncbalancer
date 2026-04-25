@@ -22,29 +22,39 @@ class ProviderState:
         self.circuit_breaker.record_failure()
 
     def reserve_capacity(self, costs: ResourceUnitCosts) -> bool:
+        updated = False
         for key, cost in costs.costs.items():
             if cost.key not in self.resource_units:
                 continue
 
             self.resource_units[cost.key].reserve(cost.amount)
-            
+            updated = True
+
+        return updated
+
     def release_capacity(self, costs: ResourceUnitCosts) -> bool:
+        updated = False
         for key, cost in costs.costs.items():
             if cost.key not in self.resource_units:
                 continue
 
             self.resource_units[cost.key].release(cost.amount)
-            
-            return True
+
+            updated = True
+
+        return updated
 
     def record_costs(self, costs: ResourceUnitCosts) -> bool:
+        updated = False
         for key, cost in costs.costs.items():
             if cost.key not in self.resource_units:
                 continue
 
             self.resource_units[cost.key].record_cost(cost.amount)
-            
-            return True
+
+            updated = True
+
+        return updated
 
     def costs_exceed_capacity(self, costs: ResourceUnitCosts) -> bool:
         for key, cost in costs.costs.items():
