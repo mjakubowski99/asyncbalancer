@@ -1,6 +1,6 @@
 [project]
 name = "asyncbalancer"
-version = "0.1.0b1"
+version = "0.1.1b1"
 description = ""
 authors = [
     {name = "Michal Jakubowski",email = "michalk415@gmail.com"}
