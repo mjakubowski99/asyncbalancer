@@ -11,6 +11,7 @@ class ProviderRequest:
     payload: dict = field(default_factory=dict)
     headers: dict = field(default_factory=dict)
     options: dict = field(default_factory=dict)
+    tier: str | None = None
 
 @dataclass 
 class ProviderResponse:

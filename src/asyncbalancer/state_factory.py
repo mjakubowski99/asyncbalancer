@@ -5,10 +5,39 @@ from asyncbalancer.models.resource import ResourceUnitUsage
 from datetime import datetime
 
 class StateFactory:
-
     def get_providers(self) -> list[str]:
         providers = get_config().get('providers') or {}
         return list(providers.keys())
+
+    def get_tier_fallback_chain(self, requested_tier: str | None) -> list[str]:
+        if not requested_tier:
+            return [None]
+
+        tier = requested_tier.lower()
+        tier_order = get_config().get("tier_order") or []
+        tier_order = [str(item).lower() for item in tier_order]
+
+        if not tier_order:
+            return [tier]
+
+        if tier not in tier_order:
+            raise ValueError(
+                f"Unknown tier: {requested_tier}. Supported tiers from config: "
+                + ", ".join(tier_order)
+            )
+
+        tier_index = tier_order.index(tier)
+        return list(reversed(tier_order[:tier_index + 1]))
+
+    def provider_supports_tier(self, provider: str, tier: str | None) -> bool:
+        if tier is None:
+            return True
+        providers = get_config().get('providers') or {}
+        config = providers.get(provider) or {}
+        configured_tiers = config.get("tiers")
+        if not configured_tiers:
+            return True
+        return tier in [str(item).lower() for item in configured_tiers]
 
     def create(self, provider: str) -> ProviderState:
         providers = get_config().get('providers') or {}

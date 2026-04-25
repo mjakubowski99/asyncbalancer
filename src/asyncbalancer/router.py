@@ -22,19 +22,17 @@ class ApiRouter:
         self.state_factory = StateFactory()
 
     async def request(self, request: ProviderRequest) -> ProviderResponse:
-        states = await self.state_repository.get_with_lowest_score(limit=10)
+        ranked_provider_names = await self.state_repository.get_with_lowest_score(limit=50)
 
-        if len(states) == 0:
-            provider_names = self.state_factory.get_providers()
-            self._validate_registered_providers_if_needed(provider_names)
-            states = [self.state_factory.create(state) for state in provider_names]
-            for state in states:
-                await self.state_repository.save_state(state)
-        else:
-            states = [await self.state_repository.get_state(state) for state in states]
-            self._validate_registered_providers_if_needed([state.name for state in states if state is not None])
-        
-        provider, estimated_costs, state = await self._find_best_provider(request, states)
+        create_missing_states = len(ranked_provider_names) == 0
+        if create_missing_states:
+            ranked_provider_names = self.state_factory.get_providers()
+
+        provider, estimated_costs, state = await self._select_provider_with_tier_fallback(
+            request=request,
+            ranked_provider_names=ranked_provider_names,
+            create_missing_states=create_missing_states,
+        )
 
         state = await self.state_repository.get_state(state.name)
 
@@ -86,7 +84,53 @@ class ApiRouter:
 
         return response
 
-    async def _find_best_provider(self, request: ProviderRequest, states: list[ProviderState]) -> (IProvider, ResourceUnitCosts, ProviderState):
+    async def _select_provider_with_tier_fallback(
+        self,
+        request: ProviderRequest,
+        ranked_provider_names: list[str],
+        create_missing_states: bool = False,
+    ) -> tuple[IProvider, ResourceUnitCosts, ProviderState]:
+        requested_tier = request.tier or request.options.get("tier")
+        tier_chain = self.state_factory.get_tier_fallback_chain(requested_tier)
+
+        for index, tier in enumerate(tier_chain):
+            tier_provider_names = [
+                provider_name
+                for provider_name in ranked_provider_names
+                if self.state_factory.provider_supports_tier(provider_name, tier)
+            ]
+            if not tier_provider_names:
+                continue
+
+            self._validate_registered_providers_if_needed(tier_provider_names)
+
+            if create_missing_states:
+                tier_states = [self.state_factory.create(provider_name) for provider_name in tier_provider_names]
+                for state in tier_states:
+                    await self.state_repository.save_state(state)
+            else:
+                tier_states = await self.state_repository.get_states(tier_provider_names)
+
+            if not tier_states:
+                continue
+
+            allow_random_fallback = index == len(tier_chain) - 1
+            selected = await self._find_best_provider(
+                request,
+                tier_states,
+                allow_random_fallback=allow_random_fallback,
+            )
+            if selected is not None:
+                return selected
+
+        raise Exception("No provider found")
+
+    async def _find_best_provider(
+        self,
+        request: ProviderRequest,
+        states: list[ProviderState],
+        allow_random_fallback: bool = True,
+    ) -> tuple[IProvider, ResourceUnitCosts, ProviderState] | None:
         for state in states:
             if not state.is_available():
                 continue
@@ -102,7 +146,7 @@ class ApiRouter:
 
             return (provider, costs, state)
 
-        if len(states) > 0:
+        if allow_random_fallback and len(states) > 0:
             from random import choice
 
             state = choice(states)
@@ -115,7 +159,7 @@ class ApiRouter:
 
             return (provider, costs, state)
 
-        raise Exception("No provider found")
+        return None
 
     def _validate_registered_providers(self, provider_names: list[str]) -> None:
         missing = []

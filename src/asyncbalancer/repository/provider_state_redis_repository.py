@@ -49,36 +49,29 @@ class ProviderStateRedisRepository(IStateRepository):
         return bool(await self._client.delete(key))
 
     async def get_state(self, key: str) -> ProviderState:
-        original_key = key
-
-        key = self._get_key(key)
-
-        state = await self._client.json().get(key, "$")
-
-        if state is None or len(state) == 0:
+        states = await self.get_states([key])
+        if not states:
             return None
+        return states[0]
 
-        state = state[0]
+    async def get_states(self, keys: list[str]) -> list[ProviderState]:
+        if len(keys) == 0:
+            return []
 
-        state = ProviderState(
-            name=original_key,
-            score=state["score"],
-            circuit_breaker=CircuitBreaker(
-                key=state["circuit_breaker"]["key"],
-                state=CircuitBreakerState(state["circuit_breaker"]["state"]),
-                failures=state["circuit_breaker"]["failures"],
-                failure_threshold=state["circuit_breaker"]["failure_threshold"],
-            ),
-            resource_units={key: ResourceUnitUsage(**value) for key, value in state["resource_units"].items()},
-        )
+        redis_keys = [self._get_key(key) for key in keys]
 
-        for key, resource_unit in state.resource_units.items():
-            if resource_unit.created_at + resource_unit.ttl < datetime.now(UTC).timestamp():
-                state.resource_units[key].used = 0
-                state.resource_units[key].reserved = 0
-                state.resource_units[key].created_at = datetime.now(UTC).timestamp()
+        async with self._client.pipeline() as pipe:
+            for redis_key in redis_keys:
+                pipe.json().get(redis_key, "$")
+            raw_states = await pipe.execute()
 
-        return state
+        states: list[ProviderState] = []
+        for original_key, raw_state in zip(keys, raw_states):
+            state = self._deserialize_state(original_key, raw_state)
+            if state is not None:
+                states.append(state)
+
+        return states
 
     async def get_with_lowest_score(self, limit: int = 5) -> list[str]:
         top_providers = await self._client.zrevrange("providers_by_score", 0, 100)
@@ -91,3 +84,30 @@ class ProviderStateRedisRepository(IStateRepository):
 
     def _get_key(self, key: str) -> str:
         return f"provider_state:{key}:data"
+
+    def _deserialize_state(self, original_key: str, raw_state) -> ProviderState | None:
+        if raw_state is None or len(raw_state) == 0:
+            return None
+
+        state_data = raw_state[0]
+
+        state = ProviderState(
+            name=original_key,
+            score=state_data["score"],
+            circuit_breaker=CircuitBreaker(
+                key=state_data["circuit_breaker"]["key"],
+                state=CircuitBreakerState(state_data["circuit_breaker"]["state"]),
+                failures=state_data["circuit_breaker"]["failures"],
+                failure_threshold=state_data["circuit_breaker"]["failure_threshold"],
+            ),
+            resource_units={key: ResourceUnitUsage(**value) for key, value in state_data["resource_units"].items()},
+        )
+
+        now_ts = datetime.now(UTC).timestamp()
+        for key, resource_unit in state.resource_units.items():
+            if resource_unit.created_at + resource_unit.ttl < now_ts:
+                state.resource_units[key].used = 0
+                state.resource_units[key].reserved = 0
+                state.resource_units[key].created_at = now_ts
+
+        return state

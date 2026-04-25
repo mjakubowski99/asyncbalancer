@@ -118,3 +118,16 @@ async def test_save_saves_state_score(state: ProviderState, worse_score_state: P
     result = await redis_repo.get_with_lowest_score(limit=2)
 
     assert result == [state.name, worse_score_state.name]
+
+
+async def test_get_states_fetches_many_in_one_call(
+    state: ProviderState,
+    worse_score_state: ProviderState,
+    redis_repo: ProviderStateRedisRepository,
+):
+    await redis_repo.save_state(state)
+    await redis_repo.save_state(worse_score_state)
+
+    result = await redis_repo.get_states([state.name, worse_score_state.name, "missing"])
+
+    assert [item.name for item in result] == [state.name, worse_score_state.name]

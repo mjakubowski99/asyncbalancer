@@ -16,6 +16,10 @@ class IStateRepository(ABC):
         pass
 
     @abstractmethod
+    async def get_states(self, keys: list[str]) -> list[ProviderState]:
+        pass
+
+    @abstractmethod
     async def remove_state(self, key: str) -> bool:
         pass
 
