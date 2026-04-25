@@ -157,3 +157,22 @@ async def test_costs_exceeds_capacity_multiple_units_return_false_if_cost_is_oka
         },
     )
     assert state_with_many_units.costs_exceed_capacity(costs) is False
+
+
+@pytest.mark.asyncio
+async def test_record_and_release_capacity_updates_all_matching_resources(state_with_many_units: ProviderState):
+    costs = ResourceUnitCosts(
+        costs={
+            "tpm": ResourceUnitCost(key="tpm", amount=5),
+            "tpm2": ResourceUnitCost(key="tpm2", amount=7),
+        },
+    )
+
+    state_with_many_units.reserve_capacity(costs)
+    state_with_many_units.release_capacity(costs)
+    state_with_many_units.record_costs(costs)
+
+    assert state_with_many_units.resource_units["tpm"].reserved == 10
+    assert state_with_many_units.resource_units["tpm2"].reserved == 20
+    assert state_with_many_units.resource_units["tpm"].used == 25
+    assert state_with_many_units.resource_units["tpm2"].used == 47

@@ -229,6 +229,14 @@ Sets resource `ttl` (and updates `created_at` to now) and recalculates score.
 asyncbalancer set-resource-ttl gemini tpm 3600
 ```
 
+### `set-score`
+
+Sets provider score manually.
+
+```bash
+asyncbalancer set-score gemini 72.5
+```
+
 ### `sync-config`
 
 Synchronizes limits from config into Redis state:
