@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   test:
-    uses: ./.github/workflows/test.yml  # ← reużywa istniejącego workflow
+    uses: ./.github/workflows/tests.yml  # ← reużywa istniejącego workflow
 
   release-build:
     runs-on: ubuntu-latest
