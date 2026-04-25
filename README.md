@@ -1,5 +1,8 @@
 # asyncbalancer
 
+> ⚠️ **Warning:** This package is currently **not stable** and may change without notice.  
+> Use it at your own risk.
+
 `asyncbalancer` is a lightweight package for routing requests across multiple providers while storing provider state in Redis.
 
 Key features:
