@@ -6,6 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from zoneinfo import ZoneInfoNotFoundError
+from datetime import UTC
 
 class StateFactory:
     SUPPORTED_PERIODS = {
@@ -80,7 +81,7 @@ class StateFactory:
                 key=resource['name'],
                 capacity=resource['value'],
                 weight=1,
-                created_at=datetime.now().timestamp(),
+                created_at=datetime.now(UTC).timestamp(),
                 ttl=self._resolve_resource_ttl(provider, resource),
                 period=str(resource.get("period")).lower() if resource.get("period") else None,
                 timezone=timezone_name,

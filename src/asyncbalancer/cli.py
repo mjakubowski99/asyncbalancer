@@ -343,8 +343,17 @@ async def sync_config(provider: str | None = None) -> int:
             for resource_key, template_resource in template_state.resource_units.items():
                 if resource_key in current_state.resource_units:
                     existing_resource = current_state.resource_units[resource_key]
+                    should_reset_created_at = (
+                        existing_resource.ttl != template_resource.ttl
+                        or existing_resource.period != template_resource.period
+                        or existing_resource.timezone != template_resource.timezone
+                    )
                     existing_resource.capacity = template_resource.capacity
                     existing_resource.ttl = template_resource.ttl
+                    existing_resource.period = template_resource.period
+                    existing_resource.timezone = template_resource.timezone
+                    if should_reset_created_at:
+                        existing_resource.created_at = datetime.now(UTC).timestamp()
                 else:
                     current_state.resource_units[resource_key] = template_resource
 
