@@ -22,12 +22,6 @@ class CircuitBreaker:
     failures: int = 0
     state: CircuitBreakerState = CircuitBreakerState.CLOSED
     last_failure_time: int = 0
-    # Baseline (seconds) from config; exponential backoff is ``cooldown_base * 2**n`` vs ``failures``.
-    cooldown_base: int = 0
-
-    def __post_init__(self) -> None:
-        if self.cooldown_base == 0:
-            object.__setattr__(self, "cooldown_base", int(self.retry_after))
 
     def _computed_cooldown_seconds(self) -> int:
         exp = min(_COOLDOWN_EXPONENT_CAP, max(0, self.failures - 1))
