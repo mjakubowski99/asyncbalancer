@@ -80,14 +80,19 @@ class ApiRouter:
             raise e
 
         async with self._locked_state(state.name) as state:
+            state = await self.state_repository.get_state(state.name)
             if response.success:
-                state = await self.state_repository.get_state(state.name)
                 actual_costs = await provider.get_costs(response)
                 state.score = self.score_calculator.calculate(response, actual_costs, state.score)
                 state.record_success()
                 state.release_capacity(estimated_costs)
                 state.record_costs(actual_costs)
             else:
+                state.score = self.score_calculator.calculate(
+                    response,
+                    estimated_costs,
+                    state.score,
+                )
                 state.release_capacity(estimated_costs)
                 state.record_failure()
             await self.state_repository.save_state(state)

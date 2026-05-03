@@ -9,6 +9,7 @@ from asyncbalancer.models.resource import ResourceUnitUsage
 from datetime import datetime, UTC
 
 from asyncbalancer.router import ApiRouter
+from asyncbalancer.score_calculator import ProviderScoreCalculator
 from unittest.mock import AsyncMock, MagicMock, patch
 import random
 
@@ -316,6 +317,47 @@ async def test_router_saves_score_when_unsuccessful(unsuccessful_router: ApiRout
     assert not response.success
     assert state.circuit_breaker.state == CircuitBreakerState.OPEN
     assert state.circuit_breaker.failures == 1
+
+
+@pytest.mark.asyncio
+async def test_router_lowers_score_when_api_returns_unsuccessful(
+    unsuccessful_router: ApiRouter,
+    redis_repo: ProviderStateRedisRepository,
+) -> None:
+    """Failed HTTP-style response applies ``ProviderScoreCalculator`` failure penalty to ``state.score``."""
+    initial_score = 90.0
+    seeded = ProviderState(
+        name="unsuccessful",
+        score=initial_score,
+        circuit_breaker=CircuitBreaker(
+            key="unsuccessful",
+            state=CircuitBreakerState.CLOSED,
+            failures=0,
+            failure_threshold=3,
+        ),
+        resource_units={
+            "tpm": ResourceUnitUsage(
+                key="tpm",
+                capacity=100,
+                weight=1,
+                created_at=datetime.now(UTC).timestamp(),
+                ttl=3600,
+            ),
+        },
+    )
+    await redis_repo.save_state(seeded)
+
+    request = ProviderRequest(payload={"prompt": "hello"})
+    response = await unsuccessful_router.request(request, tries=1)
+
+    assert response.success is False
+    state = await redis_repo.get_state("unsuccessful")
+    expected = max(
+        ProviderScoreCalculator.MIN_SCORE,
+        min(100.0, initial_score * ProviderScoreCalculator.FAILURE_PENALTY),
+    )
+    assert state.score == expected
+    assert state.score < initial_score
 
 
 @pytest.mark.asyncio
