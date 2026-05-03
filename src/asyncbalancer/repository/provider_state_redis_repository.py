@@ -1,11 +1,11 @@
 from asyncbalancer.repository.istate_repository import IStateRepository
 from asyncbalancer.models.state import ProviderState
 from asyncbalancer.models.circuit_breaker import CircuitBreaker, CircuitBreakerState
+from asyncbalancer.utils import get_period_window
 from redis.asyncio import Redis
 from dataclasses import asdict
 from asyncbalancer.models.resource import ResourceUnitUsage
 from datetime import datetime
-from datetime import timedelta
 from enum import Enum
 from datetime import UTC
 from zoneinfo import ZoneInfo
@@ -27,8 +27,16 @@ class ProviderStateRedisRepository(IStateRepository):
         host: str,
         port: int = 6379,
         db: int = 0,
+        password: str | None = None,
+        **kwargs 
     ):
-        self._client: Redis = Redis(host=host, port=port, db=db)
+        self._client: Redis = Redis(
+            host=host, 
+            port=port, 
+            db=db, 
+            password=password,
+            **kwargs
+        )
 
     async def lock(self, key: str) -> bool:
         return bool(await self._client.set(f'lock:{key}', '1', ex=10, nx=True))
@@ -94,14 +102,17 @@ class ProviderStateRedisRepository(IStateRepository):
 
         state_data = raw_state[0]
 
+        cb = state_data["circuit_breaker"]
         state = ProviderState(
             name=original_key,
             score=state_data["score"],
             circuit_breaker=CircuitBreaker(
-                key=state_data["circuit_breaker"]["key"],
-                state=CircuitBreakerState(state_data["circuit_breaker"]["state"]),
-                failures=state_data["circuit_breaker"]["failures"],
-                failure_threshold=state_data["circuit_breaker"]["failure_threshold"],
+                key=cb["key"],
+                failure_threshold=cb["failure_threshold"],
+                retry_after=cb.get("retry_after", 60),
+                failures=cb["failures"],
+                state=CircuitBreakerState(cb["state"]),
+                last_failure_time=cb.get("last_failure_time", 0),
             ),
             resource_units={key: ResourceUnitUsage(**value) for key, value in state_data["resource_units"].items()},
         )
@@ -111,7 +122,7 @@ class ProviderStateRedisRepository(IStateRepository):
             if resource_unit.period and resource_unit.period != "custom":
                 timezone = self._resolve_timezone(resource_unit.timezone)
                 now_local = datetime.now(timezone)
-                period_start, period_end = self._get_period_window(resource_unit.period, now_local)
+                period_start, period_end = get_period_window(resource_unit.period, now_local)
                 created_at_local = datetime.fromtimestamp(resource_unit.created_at, timezone)
 
                 # Recalculate TTL dynamically each read.
@@ -135,49 +146,3 @@ class ProviderStateRedisRepository(IStateRepository):
             return ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
             return ZoneInfo("UTC")
-
-    def _get_period_window(self, period: str, now: datetime) -> tuple[datetime, datetime]:
-        if period == "secondly":
-            start = now.replace(microsecond=0)
-            end = start + timedelta(seconds=1)
-        elif period == "minutely":
-            start = now.replace(second=0, microsecond=0)
-            end = start + timedelta(minutes=1)
-        elif period == "hourly":
-            start = now.replace(minute=0, second=0, microsecond=0)
-            end = start + timedelta(hours=1)
-        elif period == "daily":
-            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            end = start + timedelta(days=1)
-        elif period == "weekly":
-            start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-            end = start + timedelta(days=7)
-        elif period == "monthly":
-            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            if start.month == 12:
-                end = start.replace(year=start.year + 1, month=1)
-            else:
-                end = start.replace(month=start.month + 1)
-        elif period == "quarterly":
-            quarter_start_month = ((now.month - 1) // 3) * 3 + 1
-            start = now.replace(
-                month=quarter_start_month,
-                day=1,
-                hour=0,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-            if quarter_start_month == 10:
-                end = start.replace(year=start.year + 1, month=1)
-            else:
-                end = start.replace(month=quarter_start_month + 3)
-        elif period == "yearly":
-            start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            end = start.replace(year=start.year + 1)
-        else:
-            # Fallback to a one-second window for unknown period values.
-            start = now
-            end = now + timedelta(seconds=1)
-
-        return start, end

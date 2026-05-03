@@ -2,8 +2,8 @@ from asyncbalancer.config import get_config
 from asyncbalancer.models.state import ProviderState
 from asyncbalancer.models.circuit_breaker import CircuitBreaker, CircuitBreakerState
 from asyncbalancer.models.resource import ResourceUnitUsage
+from asyncbalancer.utils import seconds_until_period_end
 from datetime import datetime
-from datetime import timedelta
 from zoneinfo import ZoneInfo
 from zoneinfo import ZoneInfoNotFoundError
 from datetime import UTC
@@ -120,7 +120,7 @@ class StateFactory:
 
         timezone_name = self._resolve_timezone_name(provider)
         timezone = self._get_timezone(timezone_name)
-        return self._seconds_until_period_end(period, timezone)
+        return seconds_until_period_end(period, timezone)
 
     def _resolve_timezone_name(self, provider: str) -> str:
         providers = get_config().get("providers") or {}
@@ -135,49 +135,3 @@ class StateFactory:
             raise ValueError(
                 f"Unknown timezone '{timezone_name}'. Use a valid IANA timezone, e.g. 'UTC' or 'Europe/Warsaw'."
             ) from exc
-
-    def _seconds_until_period_end(self, period: str, timezone: ZoneInfo) -> int:
-        now = datetime.now(timezone)
-
-        if period == "secondly":
-            period_end = (now + timedelta(seconds=1)).replace(microsecond=0)
-        elif period == "minutely":
-            period_end = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        elif period == "hourly":
-            period_end = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        elif period == "daily":
-            period_end = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        elif period == "weekly":
-            days_until_next_week = 7 - now.weekday()
-            period_end = (now + timedelta(days=days_until_next_week)).replace(
-                hour=0,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-        elif period == "monthly":
-            if now.month == 12:
-                period_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                period_end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        elif period == "quarterly":
-            current_quarter = (now.month - 1) // 3 + 1
-            next_quarter_start_month = current_quarter * 3 + 1
-            if next_quarter_start_month > 12:
-                period_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                period_end = now.replace(
-                    month=next_quarter_start_month,
-                    day=1,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0,
-                )
-        elif period == "yearly":
-            period_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        else:
-            raise ValueError(f"Unsupported period '{period}'.")
-
-        ttl_seconds = int((period_end - now).total_seconds())
-        return max(ttl_seconds, 1)

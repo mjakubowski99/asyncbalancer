@@ -8,6 +8,9 @@ from asyncbalancer.models.resource import ResourceUnitCosts
 from asyncbalancer.providers.iprovider import IProvider
 from asyncbalancer.providers.provider_registry import ProviderRegistry
 from asyncbalancer.state_factory import StateFactory
+from contextlib import asynccontextmanager
+from datetime import datetime, UTC
+import time
 
 import asyncio
 
@@ -21,9 +24,38 @@ class ApiRouter:
         self.score_calculator = ProviderScoreCalculator()
         self.state_factory = StateFactory()
 
-    async def request(self, request: ProviderRequest) -> ProviderResponse:
-        ranked_provider_names = await self.state_repository.get_with_lowest_score(limit=50)
+    async def request(self, request: ProviderRequest, tries: int = 3, timeout_seconds: int = 120) -> ProviderResponse:
+        start_time = time.time()
+        last_response = None 
+        last_exception = None
 
+        for _ in range(tries):
+            try:
+                last_response = await self.__make_request(request)
+            except Exception as e:
+                last_exception = e
+                await asyncio.sleep(0.1)
+                continue
+
+            end_time = time.time()
+
+            if end_time - start_time > timeout_seconds:
+                raise Exception("Api router timed out")
+
+            if last_response.success:
+                return last_response
+
+            await asyncio.sleep(0.1)
+            continue
+
+        if last_exception:
+            raise last_exception
+
+        return last_response
+
+    
+    async def __make_request(self, request: ProviderRequest) -> ProviderResponse:
+        ranked_provider_names = await self.state_repository.get_with_lowest_score(limit=50)
         create_missing_states = len(ranked_provider_names) == 0
         if create_missing_states:
             ranked_provider_names = self.state_factory.get_providers()
@@ -34,55 +66,46 @@ class ApiRouter:
             create_missing_states=create_missing_states,
         )
 
-        state = await self.state_repository.get_state(state.name)
-
-        state.reserve_capacity(estimated_costs)
-
-        await self.state_repository.save_state(state)
+        async with self._locked_state(state.name) as state:
+            state.reserve_capacity(estimated_costs)
+            await self.state_repository.save_state(state)
 
         try:
             response: ProviderResponse = await provider.request(request)
         except Exception as e:
-            state.record_failure()
-            await self.state_repository.save_state(state)
+            async with self._locked_state(state.name) as state:
+                state.release_capacity(estimated_costs)
+                state.record_failure()
+                await self.state_repository.save_state(state)
             raise e
 
-        if response.success:
-            actual_costs = await provider.get_costs(response)
-            score = self.score_calculator.calculate(response, actual_costs)
-
-            acquired = await self.state_repository.lock(state.name)
-
-            while not acquired:
-                acquired = await self.state_repository.lock(state.name)
-                await asyncio.sleep(0.1)
-
-            state = await self.state_repository.get_state(state.name)
-
-            state.score = score
-
-            state.record_success()
-
-            state.release_capacity(estimated_costs)
-            
-            state.record_costs(actual_costs)
-        else:
-            acquired = await self.state_repository.lock(state.name)
-
-            while not acquired:
-                acquired = await self.state_repository.lock(state.name)
-                await asyncio.sleep(0.1)
-
-            state = await self.state_repository.get_state(state.name)
-            state.release_capacity(estimated_costs)
-            state.record_failure()
-            state.score = 0.0
-
-        await self.state_repository.save_state(state)
-
-        await self.state_repository.unlock(state.name)
+        async with self._locked_state(state.name) as state:
+            if response.success:
+                actual_costs = await provider.get_costs(response)
+                state.score = self.score_calculator.calculate(response, actual_costs)
+                state.record_success()
+                state.release_capacity(estimated_costs)
+                state.record_costs(actual_costs)
+            else:
+                state.release_capacity(estimated_costs)
+                state.record_failure()
+                state.score = 0.0
+            await self.state_repository.save_state(state)
 
         return response
+
+    @asynccontextmanager
+    async def _locked_state(self, name: str, max_retries: int = 50, delay: float = 0.1):
+        for attempt in range(max_retries):
+            if await self.state_repository.lock(name):
+                break
+            await asyncio.sleep(delay)
+        else:
+            raise TimeoutError(f"Could not acquire lock for '{name}' after {max_retries} attempts")
+        try:
+            yield await self.state_repository.get_state(name)
+        finally:
+            await self.state_repository.unlock(name)
 
     async def _select_provider_with_tier_fallback(
         self,
