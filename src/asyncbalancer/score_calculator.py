@@ -9,8 +9,8 @@ class ProviderScoreCalculator:
     LATENCY_SCALE_MS = 1000.0
     MIN_SCORE = 5.0
     EMA_ALPHA = 0.2
-    # Applied when the provider returns ``success=False`` (and optionally again for timeout-like errors).
-    TIMEOUT_PENALTY = 0.7
+    FAILURE_PENALTY = 0.6        # mnożnik na previous_score przy każdym błędzie
+    TIMEOUT_PENALTY = 0.5        # dodatkowy mnożnik gdy błąd to timeout
     RECOVERY_BOOST = 1.1
     RECOVERY_THRESHOLD = 5.0
 
@@ -41,11 +41,15 @@ class ProviderScoreCalculator:
             + (self.LATENCY_WEIGHT * latency_score)
         )
 
+        # --- błąd: kara niezależna od raw_score ---
         if not response.success:
-            raw_score *= self.TIMEOUT_PENALTY
+            base = previous_score if previous_score is not None else raw_score
+            penalized = base * self.FAILURE_PENALTY
             if self._error_suggests_timeout(response.error):
-                raw_score *= self.TIMEOUT_PENALTY
+                penalized *= self.TIMEOUT_PENALTY
+            return max(self.MIN_SCORE, min(100.0, penalized))
 
+        # --- sukces: EMA + recovery boost ---
         if previous_score is None:
             return max(self.MIN_SCORE, min(100.0, raw_score))
 

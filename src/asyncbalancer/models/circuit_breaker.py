@@ -3,6 +3,9 @@ from enum import Enum
 from datetime import datetime
 from datetime import UTC
 
+_COOLDOWN_EXPONENT_CAP = 10
+_MAX_COOLDOWN_SECONDS = 86400
+
 
 class CircuitBreakerState(Enum):
     OPEN = "open"
@@ -19,10 +22,15 @@ class CircuitBreaker:
     state: CircuitBreakerState = CircuitBreakerState.CLOSED
     last_failure_time: int = 0
 
+    def effective_retry_seconds(self) -> int:
+        """Cooldown after a failure: ``retry_after`` × 2ⁿ where n grows with ``failures`` (capped)."""
+        exp = min(_COOLDOWN_EXPONENT_CAP, max(0, self.failures - 1))
+        return min(_MAX_COOLDOWN_SECONDS, int(self.retry_after) * (2**exp))
+
     def can_retry(self) -> bool:
         now = datetime.now(UTC).timestamp()
 
-        if now - self.last_failure_time < self.retry_after:
+        if now - self.last_failure_time < self.effective_retry_seconds():
             return False
 
         # Cooldown elapsed: allow one probe request in HALF_OPEN state.

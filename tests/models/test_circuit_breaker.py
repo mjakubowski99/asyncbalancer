@@ -50,6 +50,16 @@ def test_half_open_failure_switches_back_to_open() -> None:
     assert breaker.last_failure_time > 0
 
 
+def test_effective_retry_seconds_grows_with_failures() -> None:
+    b1 = CircuitBreaker(key="a", failure_threshold=99, retry_after=60, failures=1)
+    b2 = CircuitBreaker(key="b", failure_threshold=99, retry_after=60, failures=2)
+    b3 = CircuitBreaker(key="c", failure_threshold=99, retry_after=60, failures=3)
+
+    assert b1.effective_retry_seconds() == 60
+    assert b2.effective_retry_seconds() == 120
+    assert b3.effective_retry_seconds() == 240
+
+
 def test_can_retry_returns_false_before_retry_window() -> None:
     now = datetime.now(UTC).timestamp()
     breaker = CircuitBreaker(
@@ -60,6 +70,8 @@ def test_can_retry_returns_false_before_retry_window() -> None:
         state=CircuitBreakerState.OPEN,
         last_failure_time=int(now) - 5,
     )
+
+    assert breaker.effective_retry_seconds() == 480
 
     assert breaker.can_retry() is False
     assert breaker.state == CircuitBreakerState.OPEN
@@ -75,6 +87,8 @@ def test_can_retry_switches_to_half_open_after_retry_window() -> None:
         state=CircuitBreakerState.OPEN,
         last_failure_time=int(now) - 100,
     )
+
+    assert breaker.effective_retry_seconds() == 4
 
     assert breaker.can_retry() is True
     assert breaker.state == CircuitBreakerState.HALF_OPEN
@@ -94,3 +108,4 @@ def test_record_success_closes_breaker_after_half_open_success() -> None:
     assert breaker.state == CircuitBreakerState.CLOSED
     assert breaker.failures == 0
     assert breaker.last_failure_time == 0
+    assert breaker.effective_retry_seconds() == 60

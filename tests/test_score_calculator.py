@@ -45,7 +45,21 @@ def test_score_is_always_in_range_min_to_100() -> None:
     assert minimum <= score_high <= 100.0
 
 
-def test_failed_response_gets_timeout_penalty_vs_success() -> None:
+def test_failure_without_previous_uses_raw_score_times_failure_penalty() -> None:
+    """``success=False`` and no ``previous_score``: ``base`` is ``raw_score``, then ``* FAILURE_PENALTY``."""
+    calculator = ProviderScoreCalculator()
+    costs = _costs(tpm=40, rpm=5)
+    ok = calculator.calculate(_response(latency=150, success=True), costs)
+    failed = calculator.calculate(_response(latency=150, success=False, error="upstream error"), costs)
+
+    expected = max(
+        ProviderScoreCalculator.MIN_SCORE,
+        min(100.0, ok * ProviderScoreCalculator.FAILURE_PENALTY),
+    )
+    assert failed == expected
+
+
+def test_failed_response_lower_than_success_same_metrics() -> None:
     calculator = ProviderScoreCalculator()
     costs = _costs(tpm=50, rpm=10)
     ok = calculator.calculate(_response(latency=200, success=True), costs)
@@ -53,9 +67,12 @@ def test_failed_response_gets_timeout_penalty_vs_success() -> None:
     assert bad < ok
 
 
-def test_failed_response_with_timeout_hint_gets_double_penalty() -> None:
+def test_failure_with_timeout_applies_failure_then_timeout_penalty() -> None:
+    """Timeout-like ``error`` applies ``FAILURE_PENALTY * TIMEOUT_PENALTY`` on ``base`` (``raw_score`` when no previous)."""
     calculator = ProviderScoreCalculator()
     costs = _costs(tpm=30)
+    raw_equivalent = calculator.calculate(_response(latency=100, success=True), costs)
+
     generic_fail = calculator.calculate(
         _response(latency=100, success=False, error="bad request"),
         costs,
@@ -64,10 +81,24 @@ def test_failed_response_with_timeout_hint_gets_double_penalty() -> None:
         _response(latency=100, success=False, error="Request timed out after 30s"),
         costs,
     )
+
+    assert generic_fail == max(
+        ProviderScoreCalculator.MIN_SCORE,
+        min(100.0, raw_equivalent * ProviderScoreCalculator.FAILURE_PENALTY),
+    )
+    assert timeout_fail == max(
+        ProviderScoreCalculator.MIN_SCORE,
+        min(
+            100.0,
+            raw_equivalent
+            * ProviderScoreCalculator.FAILURE_PENALTY
+            * ProviderScoreCalculator.TIMEOUT_PENALTY,
+        ),
+    )
     assert timeout_fail < generic_fail
 
 
-def test_ema_still_applies_after_failure_penalty() -> None:
+def test_failure_with_previous_score_multiplies_previous_by_failure_penalty() -> None:
     calculator = ProviderScoreCalculator()
     costs = _costs(tpm=10)
     prev = 80.0
@@ -76,5 +107,8 @@ def test_ema_still_applies_after_failure_penalty() -> None:
         costs,
         previous_score=prev,
     )
-    assert failed < prev
-    assert failed >= ProviderScoreCalculator.MIN_SCORE
+    assert failed == max(
+        ProviderScoreCalculator.MIN_SCORE,
+        min(100.0, prev * ProviderScoreCalculator.FAILURE_PENALTY),
+    )
+    assert failed == 48.0
